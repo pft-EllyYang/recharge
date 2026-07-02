@@ -1,0 +1,1384 @@
+<!DOCTYPE html><html lang="zh-TW" class="dark"><head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>2026 前端轉折點：從 INP 優化到 Rust 工具鏈 (v2)</title>
+    <!-- Tailwind CSS -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script>
+        tailwind.config = {
+            darkMode: 'class',
+            theme: {
+                extend: {
+                    colors: {
+                        brand: {
+                            50: '#eef2ff',
+                            100: '#e0e7ff',
+                            200: '#c7d2fe',
+                            300: '#a5b4fc',
+                            400: '#818cf8',
+                            500: '#6366f1',
+                            600: '#4f46e5',
+                            700: '#4338ca',
+                            800: '#3730a3',
+                            900: '#312e81',
+                        }
+                    }
+                }
+            }
+        }
+    </script>
+    <!-- Google Fonts -->
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Fira+Code:wght@400;500&amp;family=Inter:wght@300;400;500;600;700;800&amp;family=Noto+Sans+TC:wght@300;400;500;700;900&amp;display=swap" rel="stylesheet">
+    <style>
+        body {
+            font-family: 'Inter', 'Noto Sans TC', sans-serif;
+        }
+        .code-font {
+            font-family: 'Fira Code', monospace;
+        }
+        /* Custom smooth transition for modal and thumbnails */
+        .zoom-img-trigger:hover {
+            transform: scale(1.03);
+            box-shadow: 0 10px 25px -5px rgba(99, 102, 241, 0.3);
+        }
+    </style>
+<style>
+  .lms-source-label {
+    position: absolute;
+    top: 8px;
+    right: 8px;
+    background-color: #e0e0e0;
+    color: #333333;
+    border-radius: 10px;
+    padding: 4px 4px;
+    font-family: sans-serif;
+    font-size: 10px;
+    pointer-events: none;
+    font-weight: 500;
+    box-shadow: 0 4px 8px rgba(0, 0, 0, 0.2), 0 1px 3px rgba(0, 0, 0, 0.1);
+  }
+</style></head>
+<body class="bg-slate-900 text-slate-100 min-h-screen flex flex-col overflow-hidden transition-colors duration-300 dark:bg-slate-950 dark:text-slate-100 light:bg-slate-50 light:text-slate-900">
+
+    <!-- TOP HEADER / CONTROLS -->
+    <header class="bg-slate-800/80 dark:bg-slate-900/80 border-b border-slate-700/50 backdrop-blur px-6 py-4 flex flex-wrap items-center justify-between z-10">
+        <div class="flex items-center space-x-3">
+            <span class="bg-brand-600 text-white font-black px-2.5 py-1 rounded text-xs tracking-wider">TEAM RECHARGE</span>
+            <h1 class="text-sm md:text-base font-bold tracking-tight text-slate-200">2026 前端轉折點 (v2)</h1>
+        </div>
+        
+        <!-- Quick Controls -->
+        <div class="flex items-center space-x-2 md:space-x-4 mt-2 sm:mt-0">
+            <!-- Timer -->
+            <div class="flex items-center space-x-1 bg-slate-900/60 dark:bg-slate-950/60 px-3 py-1.5 rounded-full text-xs text-slate-300 border border-slate-700/50">
+                <svg class="w-3.5 h-3.5 text-brand-400 animate-pulse" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z"></path></svg>
+                <span id="timer">00:00</span>
+                <button onclick="resetTimer()" class="hover:text-brand-400 ml-1.5 focus:outline-none" title="重設時間">
+                    <svg class="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 4v5h.582m15.356 2A8.001 8.001 0 1121.21 15H19"></path></svg>
+                </button>
+            </div>
+
+            <!-- Notes Toggle -->
+            <button id="toggleNotesBtn" onclick="toggleNotes()" class="flex items-center space-x-1.5 px-3 py-1.5 rounded-md text-xs font-semibold bg-slate-700 hover:bg-slate-600 text-slate-100 transition">
+                <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z"></path></svg>
+                <span>備忘錄 (<span id="notesStatus">顯示</span>)</span>
+            </button>
+
+            <!-- Keyboard shortcut tip -->
+            <span class="hidden lg:inline-block text-[10px] text-slate-400 bg-slate-800 px-2 py-1 rounded border border-slate-700/30">
+                鍵盤左右鍵 ◀ ▶ 可切換
+            </span>
+        </div>
+    </header>
+
+    <!-- MAIN VIEWER CONTAINER -->
+    <div class="flex-1 flex flex-col lg:flex-row overflow-hidden relative">
+        
+        <!-- LEFT SLIDE SPACE -->
+        <main class="flex-1 flex flex-col justify-center p-4 md:p-8 overflow-y-auto relative">
+            <div id="slideContent" class="max-w-4xl mx-auto w-full bg-slate-800/40 dark:bg-slate-900/20 p-6 md:p-10 rounded-2xl border border-slate-700/30 shadow-xl min-h-[500px] flex flex-col justify-between transition-all duration-300">
+                <!-- Dynamically populated slide content -->
+                <div id="slideBody"></div>
+            </div>
+        </main>
+
+        <!-- RIGHT PRESENTER NOTES PANEL -->
+        <aside id="notesPanel" class="w-full lg:w-[400px] bg-slate-950 border-t lg:border-t-0 lg:border-l border-slate-800 flex flex-col h-[220px] lg:h-auto transition-all duration-300 z-10">
+            <div class="bg-slate-900 px-4 py-3 border-b border-slate-800 flex items-center justify-between">
+                <div class="flex items-center space-x-2">
+                    <span class="w-2.5 h-2.5 bg-amber-500 rounded-full animate-pulse"></span>
+                    <h3 class="text-xs font-bold uppercase tracking-wider text-slate-400">講者講稿 &amp; 備忘錄 (Presenter Notes)</h3>
+                </div>
+                <span class="text-[10px] text-slate-500">僅講者可見</span>
+            </div>
+            <div class="flex-1 overflow-y-auto p-5 text-slate-300 text-sm leading-relaxed" id="slideNotes">
+                <!-- Notes will dynamically output here -->
+            </div>
+        </aside>
+    </div>
+
+    <!-- IMAGE LIGHTBOX / MODAL SYSTEM -->
+    <div id="imageLightbox" class="fixed inset-0 z-50 hidden bg-slate-950/95 backdrop-blur-md flex flex-col items-center justify-center p-4 transition-all duration-300">
+        <!-- Close button -->
+        <button onclick="closeLightbox()" class="absolute top-6 right-6 p-3 bg-slate-800/80 hover:bg-slate-700 border border-slate-700 hover:border-slate-500 rounded-full text-slate-200 hover:text-white transition duration-200 shadow-lg" title="關閉">
+            <svg class="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"></path></svg>
+        </button>
+        <!-- Modal Content Container -->
+        <div class="max-w-5xl w-full flex flex-col items-center space-y-4">
+            <h4 id="lightboxTitle" class="text-lg md:text-xl font-bold tracking-tight text-white bg-slate-900 px-4 py-1.5 rounded-full border border-slate-700/60 text-center"></h4>
+            <div class="relative w-full max-h-[80vh] flex justify-center overflow-hidden rounded-xl border border-slate-800/80 shadow-2xl bg-slate-900">
+                <img id="lightboxImage" alt="Zoomed Diagram" class="max-w-full max-h-[80vh] object-contain" src="https://placehold.co/600x400/png">
+            </div>
+            <p class="text-xs text-slate-400">💡 提示：按 ESC 鍵或點擊上方關閉按鈕，即可返回簡報畫面。</p>
+        </div>
+    </div>
+
+    <!-- BOTTOM PROGRESS BAR & NAVIGATION CONTROLS -->
+    <footer class="bg-slate-950 border-t border-slate-800 py-4 px-6 flex items-center justify-between select-none z-10">
+        <!-- Slide Count -->
+        <div class="text-xs text-slate-400">
+            投影片：<span id="currentSlideNum" class="text-white font-bold text-sm">1</span> / <span id="totalSlideNum" class="text-slate-500">18</span>
+        </div>
+
+        <!-- Navigation Buttons -->
+        <div class="flex items-center space-x-3">
+            <button onclick="prevSlide()" class="p-2 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-300 hover:text-white transition focus:outline-none focus:ring-2 focus:ring-brand-500">
+                <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 19l-7-7 7-7"></path></svg>
+            </button>
+            
+            <!-- Quick selector dropdown -->
+            <select id="slideSelector" onchange="jumpToSlide(this.value)" class="bg-slate-800 border border-slate-700 text-xs text-slate-200 rounded px-2 py-1.5 focus:outline-none focus:ring-2 focus:ring-brand-500 max-w-[150px] md:max-w-xs">
+                <!-- Dynamically populated options -->
+            </select>
+
+            <button onclick="nextSlide()" class="p-2 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-300 hover:text-white transition focus:outline-none focus:ring-2 focus:ring-brand-500">
+                <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5l7 7-7 7"></path></svg>
+            </button>
+        </div>
+
+        <!-- Progress bar container -->
+        <div class="absolute bottom-0 left-0 right-0 h-1 bg-slate-800">
+            <div id="progressBar" class="h-full bg-gradient-to-r from-brand-500 to-indigo-500 transition-all duration-300" style="width: 5.55%"></div>
+        </div>
+    </footer>
+
+    <!-- INLINE TOAST SYSTEM -->
+    <div id="toast" class="fixed bottom-16 right-6 bg-emerald-600 text-white text-xs px-4 py-2.5 rounded-lg shadow-xl translate-y-20 opacity-0 transition-all duration-300 z-50 flex items-center space-x-2">
+        <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7"></path></svg>
+        <span id="toastMsg">已複製資訊！</span>
+    </div>
+
+    <!-- MAIN JAVASCRIPT LOGIC -->
+    <script>
+        // ----------------------------------------------------
+        // SLIDES DATA STRUCTURE (18 SLIDES)
+        // ----------------------------------------------------
+        const slides = [
+            {
+                id: 1,
+                title: "2026 前端轉折點",
+                subtitle: "從 INP 效能優化到 Rust 工具鏈的實戰啟示",
+                type: "title",
+                content: `
+                    <div class="flex flex-col items-center justify-center text-center space-y-8 my-auto py-10">
+                        <div class="relative">
+                            <div class="absolute -inset-1 rounded-lg bg-gradient-to-r from-brand-500 to-indigo-500 opacity-75 blur"></div>
+                            <div class="relative bg-slate-900 px-6 py-4 rounded-xl border border-slate-700">
+                                <span class="text-sm tracking-widest font-bold text-brand-400">🔥 FRONTEND RECHARGE SESSION</span>
+                            </div>
+                        </div>
+                        <div class="space-y-4">
+                            <h2 class="text-4xl md:text-5xl font-black tracking-tight leading-tight bg-gradient-to-r from-white via-slate-100 to-slate-400 bg-clip-text text-transparent">
+                                2026 前端轉折點
+                            </h2>
+                            <p class="text-lg md:text-xl text-slate-400 font-medium max-w-2xl mx-auto">
+                                從 INP 效能優化到 Rust 工具鏈的實戰啟示
+                            </p>
+                        </div>
+                        <div class="flex flex-col sm:flex-row items-center justify-center gap-4 text-xs text-slate-400 pt-10">
+                            <div class="flex items-center space-x-2 bg-slate-800/80 px-4 py-2 rounded-full border border-slate-700/50">
+                                <span class="w-2 h-2 bg-emerald-500 rounded-full animate-ping"></span>
+                                <span>講者：<strong>Elly Yang</strong></span>
+                            </div>
+                            <div class="flex items-center space-x-2 bg-slate-800/80 px-4 py-2 rounded-full border border-slate-700/50">
+                                <svg class="w-4 h-4 text-indigo-400" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8 7V3m8 4V3m-9 8h10M5 21h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z"></path></svg>
+                                <span>2026/07/02 內部技術分享</span>
+                            </div>
+                        </div>
+                    </div>
+                `,
+                notes: "大家好！今天我們的 Session 主要是一個輕鬆的技術交流和 Recharge。現在大家平常開發應該都是『有事問 AI，AI 幫我寫』，一時之間我也有點猶豫要分享什麼。所以我直接去跟幾位主流的 AI 助手們深度聊了聊，整理出這份簡報。今天不會聊高大上的未來概念，而是聚焦在我們每天寫 Web 都會碰到的『痛點』：包括 Core Web Vitals 效能指標的巨變，以及我們每天存檔等待時都在經歷的工具鏈革命！"
+            },
+            {
+                id: 2,
+                title: "簡報大綱 (Agenda)",
+                type: "standard",
+                content: `
+                    <div class="space-y-6 my-auto">
+                        <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+                            <!-- Block 1 -->
+                            <div class="bg-slate-800/50 p-4 rounded-xl border border-slate-700/60 hover:border-brand-500/30 transition duration-300">
+                                <span class="text-xs font-bold text-brand-400">PART 01. 效能革命</span>
+                                <h4 class="text-base font-bold text-white mt-1 mb-2">Web 效能新標竿：INP 全解析</h4>
+                                <ul class="text-xs text-slate-400 space-y-1.5 list-disc list-inside">
+                                    <li>網頁流暢度：從 FID 走向 INP 指標</li>
+                                    <li>幕後元兇：什麼是長任務 (Long Tasks)</li>
+                                    <li>實戰：如何優化 INP 與拆分任務</li>
+                                </ul>
+                            </div>
+                            <!-- Block 2 -->
+                            <div class="bg-slate-800/50 p-4 rounded-xl border border-slate-700/60 hover:border-brand-500/30 transition duration-300">
+                                <span class="text-xs font-bold text-brand-400">PART 02. 狀態革命</span>
+                                <h4 class="text-base font-bold text-white mt-1 mb-2">關鍵橋梁：渲染瀑布與輕量狀態</h4>
+                                <ul class="text-xs text-slate-400 space-y-1.5 list-disc list-inside">
+                                    <li>什麼是渲染瀑布陷阱 (Render Waterfall Trap)</li>
+                                    <li>「獨立於組件樹之外」的本質含意</li>
+                                    <li>微型精準更新：Zustand 與 Signals</li>
+                                </ul>
+                            </div>
+                            <!-- Block 3 -->
+                            <div class="bg-slate-800/50 p-4 rounded-xl border border-slate-700/60 hover:border-brand-500/30 transition duration-300">
+                                <span class="text-xs font-bold text-brand-400">PART 03. 工具鏈革命</span>
+                                <h4 class="text-base font-bold text-white mt-1 mb-2">開發體驗：前端底層的 Rust 化</h4>
+                                <ul class="text-xs text-slate-400 space-y-1.5 list-disc list-inside">
+                                    <li>為什麼 JavaScript 打包到了極限？</li>
+                                    <li>Webpack 完美替代超跑：Rspack 實戰</li>
+                                    <li>Vite 未來的心臟：Rolldown 原理</li>
+                                </ul>
+                            </div>
+                            <!-- Block 4 -->
+                            <div class="bg-slate-800/50 p-4 rounded-xl border border-slate-700/60 hover:border-brand-500/30 transition duration-300">
+                                <span class="text-xs font-bold text-brand-400">PART 04. 團隊落實</span>
+                                <h4 class="text-base font-bold text-white mt-1 mb-2">選型決策與明天上班的行動指南</h4>
+                                <ul class="text-xs text-slate-400 space-y-1.5 list-disc list-inside">
+                                    <li>成熟工程師的技術評估視角</li>
+                                    <li>Chrome Devtools 與工具列實操</li>
+                                    <li>現場交流與 Q&A 互動</li>
+                                </ul>
+                            </div>
+                        </div>
+                    </div>
+                `,
+                notes: "這裡先跟大家過一下今天的大綱 Agenda。今天主要拆成四大塊：第一，我們會深入淺出聊聊最新的 INP 瀏覽器效能指標；第二，我們探討前端最常踩進去的『渲染瀑布陷阱 (Render Waterfall Trap)』，看 Zustand 與 Signals 是怎麼從架構上救回效能的；第三，我們一起來玩玩最夯的 Rust 打包工具 Rspack 和 Rolldown，現場還準備了打包大賽模擬；最後，我們以務實的角度，看看團隊明天上班可以怎麼著手改善專案。"
+            },
+            {
+                id: 3,
+                title: "今天，聊聊我們的日常惡夢 🤯",
+                type: "standard",
+                content: `
+                    <div class="space-y-8 my-auto">
+                        <div class="grid grid-cols-1 md:grid-cols-2 gap-6">
+                            <!-- Pain point 1 -->
+                            <div class="bg-slate-850 p-6 rounded-xl border border-slate-700/50 hover:border-brand-500/50 transition duration-300">
+                                <div class="w-12 h-12 bg-rose-500/10 text-rose-400 rounded-lg flex items-center justify-center mb-4">
+                                    <svg class="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z"></path></svg>
+                                </div>
+                                <h3 class="text-lg font-bold text-white mb-2">惡夢一：專案打包與熱更新極慢</h3>
+                                <p class="text-sm text-slate-400 leading-relaxed">
+                                    專案越寫越大，改行程式碼存檔後，熱更新（HMR）要等 5 秒以上。甚至只是改個文字，都要喝口水等終端機跑完。
+                                </p>
+                            </div>
+                            
+                            <!-- Pain point 2 -->
+                            <div class="bg-slate-850 p-6 rounded-xl border border-slate-700/50 hover:border-brand-500/50 transition duration-300">
+                                <div class="w-12 h-12 bg-amber-500/10 text-amber-400 rounded-lg flex items-center justify-center mb-4">
+                                    <svg class="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 10V3L4 14h7v7l9-11h-7z"></path></svg>
+                                </div>
+                                <h3 class="text-lg font-bold text-white mb-2">惡夢二：分數很美，現實很卡</h3>
+                                <p class="text-sm text-slate-400 leading-relaxed">
+                                    在 Lighthouse 燈塔評分跑測速，分數綠油油（甚至是 100 分），但上線後卻還是常收到使用者反映點擊網頁選單沒回應、按按鈕感覺卡卡的。
+                                </p>
+                            </div>
+                        </div>
+
+                        <div class="bg-slate-900/50 border border-slate-700/40 p-4 rounded-lg text-center mt-6">
+                            <p class="text-sm text-slate-300">
+                                💡 <strong class="text-brand-400">思考：</strong> 到底要怎麼解決這兩個惱人的問題？
+                            </p>
+                        </div>
+                    </div>
+                `,
+                notes: "大家日常開發一定遇過這兩個情況：第一，專案越寫越大，改行程式碼存檔後，hot reload要跑好幾秒，咖啡都泡好了網頁還沒重整完。第二，看 Lighthouse 分數明明綠油油一片(雖然我們yce還在努力中XD)，上線後卻還是會收到使用者抱怨網頁卡頓。今天recharge我們就來看一下現代前端是怎麼解決這兩個惡夢的。"
+            },
+            {
+                id: 4,
+                title: "技術科普：什麼是 FID 與 INP？ 📊",
+                type: "standard",
+                content: `
+                    <div class="space-y-6 my-auto">
+                        <div class="space-y-4">
+                            <!-- FID card -->
+                            <div class="flex items-start space-x-4 bg-slate-800/80 p-5 rounded-xl border border-slate-700">
+                                <div class="bg-red-500/10 text-red-400 px-3 py-1.5 rounded font-black text-sm uppercase tracking-wide">
+                                    FID
+                                </div>
+                                <div class="flex-1 space-y-1">
+                                    <h4 class="text-base font-bold text-white">First Input Delay（首次輸入延遲）</h4>
+                                    <p class="text-xs text-rose-400">舊指標 ❌ Google 官方已於 2024 年 3 月退役</p>
+                                    <p class="text-sm text-slate-400 leading-relaxed pt-1">
+                                        衡量使用者<strong>「第一次」</strong>與網頁互動時，瀏覽器主線程隔了多久才「開始處理」這個事件。因為只看第一眼，沒辦法反映使用者後續操作的體驗。
+                                    </p>
+                                </div>
+                            </div>
+
+                            <!-- INP card -->
+                            <div class="flex items-start space-x-4 bg-slate-800/80 p-5 rounded-xl border-2 border-brand-500/50">
+                                <div class="bg-emerald-500/10 text-emerald-400 px-3 py-1.5 rounded font-black text-sm uppercase tracking-wide">
+                                    INP
+                                </div>
+                                <div class="flex-1 space-y-1">
+                                    <h4 class="text-base font-bold text-white">Interaction to Next Paint（互動至下次轉化）</h4>
+                                    <p class="text-xs text-brand-400">最新核心指標 👑 Google 官方 2026 現行主流指標</p>
+                                    <p class="text-sm text-slate-400 leading-relaxed pt-1">
+                                        統計使用者在整個網頁生命週期中，<strong>「每一次」</strong>點擊或互動，從點下去到 <strong>瀏覽器畫面真的更新（Paint）</strong>的完整毫秒數。
+                                    </p>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                `,
+                notes: "在解決剛才聊到的惡夢之前，我們先來做個簡單的技術科普。大家在看效能報告時，一定常看到 FID 和 INP 這兩個英文縮寫，它們到底代表什麼呢?舊的指標叫做 FID，中文翻譯成『首次輸入延遲』。它算的是使用者進到網頁後的『第一次點擊』，瀏覽器要花多少時間才『開始處理』這件事。而近年 Google 全面推行的核心指標叫做 INP，中文叫做『互動至下次轉化』。它很不一樣，它紀錄的是使用者在這個網頁上的『每一次互動』。而且它不只看瀏覽器什麼時候開始處理，它算的是從你點下去，到瀏覽器『畫面真的更新、渲染出下一個畫面』，這中間完整的等待時間。"
+            },
+            {
+                id: 5,
+                title: "日常例子：遞菜單 vs 每次舉手 🍽️",
+                type: "standard",
+                content: `
+                    <div class="space-y-6 my-auto">
+                        <div class="grid grid-cols-1 md:grid-cols-2 gap-6">
+                            <!-- Restaurant FID -->
+                            <div class="bg-slate-800/60 p-5 rounded-xl border border-slate-700/50">
+                                <div class="flex items-center space-x-2 text-rose-400 font-bold mb-3">
+                                    <span>❌ 過去的 FID（看重第一印象）</span>
+                                </div>
+                                <div class="bg-slate-900/80 p-4 rounded-lg border border-slate-800 text-sm space-y-2">
+                                    <p class="text-slate-300 font-semibold">🍽️ 餐廳場景比喻：</p>
+                                    <p class="text-slate-400">
+                                        你一走進餐廳坐下，服務生只花了 2 秒就走過來把菜單遞給你。
+                                    </p>
+                                    <p class="text-rose-400 text-xs mt-1">
+                                        這時候 FID 就會拿到綠色優良分數。但之後呢？
+                                    </p>
+                                </div>
+                            </div>
+
+                            <!-- Restaurant INP -->
+                            <div class="bg-slate-800/60 p-5 rounded-xl border-2 border-emerald-500/20">
+                                <div class="flex items-center space-x-2 text-emerald-400 font-bold mb-3">
+                                    <span>👑 現在的 INP（衡量全程體驗）</span>
+                                </div>
+                                <div class="bg-slate-900/80 p-4 rounded-lg border border-slate-800 text-sm space-y-2">
+                                    <p class="text-slate-300 font-semibold">🍽️ 餐廳場景比喻：</p>
+                                    <p class="text-slate-400">
+                                        你待在餐廳的用餐過程，每次舉手喊「服務生要點餐、要加水、結帳」，服務生 average 能在幾秒內走過來。
+                                    </p>
+                                    <p class="text-emerald-400 text-xs mt-1">
+                                        INP 重視這趟全程的服務體驗！
+                                    </p>
+                                </div>
+                            </div>
+                        </div>
+
+                        <!-- Traffic light standard -->
+                        <div class="bg-slate-900/40 border border-slate-700/50 p-4 rounded-xl">
+                            <h4 class="text-xs font-bold text-slate-300 uppercase tracking-wider mb-3 text-center">📊 Google 官方 INP 紅綠燈評分標準：</h4>
+                            <div class="grid grid-cols-3 gap-3 text-center text-xs">
+                                <div class="bg-emerald-500/10 border border-emerald-500/30 p-2.5 rounded-lg">
+                                    <span class="block font-black text-emerald-400">🟢 優良 (Good)</span>
+                                    <span class="block text-white font-bold mt-1">&le; 200 ms</span>
+                                </div>
+                                <div class="bg-amber-500/10 border border-amber-500/30 p-2.5 rounded-lg">
+                                    <span class="block font-black text-amber-400">🟡 需要改善</span>
+                                    <span class="block text-white font-bold mt-1">200ms ~ 500ms</span>
+                                </div>
+                                <div class="bg-rose-500/10 border border-rose-500/30 p-2.5 rounded-lg">
+                                    <span class="block font-black text-rose-400">🔴 不良 (Poor)</span>
+                                    <span class="block text-white font-bold mt-1">&gt; 500 ms</span>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                `,
+                notes: "我們用去餐廳吃飯來比喻 FID 和 INP 的差別。過去的指標叫 FID，它看的是『第一印象』。就像你走進一家餐廳，剛坐下，服務生只花了 2 秒就走過來把菜單遞給你。這時 FID 就會拿到滿分，Google 會覺得這家餐廳服務真棒。但是，這家餐廳有一個大問題——遞完菜單後，服務生就跑去廚房忙了。接下來你在用餐的兩個小時裡，每次舉手喊：『服務生點餐』、『服務生我想加水』，每喊一次，你都要在座位上乾等足足 5 分鐘，服務生才有空理你。站在顧客的角度，這家餐廳的服務體驗其實爛透了對吧？這就是為什麼 Google 要改用 INP 的原因。"
+            },
+            {
+                id: 6,
+                title: "魔鬼在細節裡：INP 到底是怎麼計分的？ 📈",
+                type: "interactive",
+                content: `
+                    <div class="space-y-4 my-auto">
+                        <div class="grid grid-cols-1 md:grid-cols-12 gap-5">
+                            
+                            <!-- Left: Core Mechanism and Diagram -->
+                            <div class="md:col-span-7 bg-slate-900/60 p-4 rounded-xl border border-slate-700/60 flex flex-col justify-between">
+                                <div class="space-y-3">
+                                    <div class="flex items-center space-x-2">
+                                        <span class="w-2.5 h-2.5 bg-brand-500 rounded-full"></span>
+                                        <h4 class="font-bold text-white text-sm">計分三大核心指標</h4>
+                                    </div>
+                                    <ul class="text-xs text-slate-300 space-y-2 leading-relaxed">
+                                        <li>💡 <strong>第 98 百分位數 (98th%)：</strong> 點擊 100 次，排除最卡的 2 次，取第 3 卡的點擊作為評分（概念為排除極端雜訊）。</li>
+                                        <li>📊 <strong>及格驗證門檻：</strong> 必須有 <strong>75%</strong> 的真實使用者其互動不超過 200ms 才算及格。</li>
+                                        <li>⚠️ <strong>Lighthouse 計算原理：</strong> 透過本地 <strong>TBT (總阻礙時間)</strong> 進行 30% 權重的估算。</li>
+                                    </ul>
+                                </div>
+
+                                <!-- THUMBNAIL INTEGRATION WITH LIGHTBOX (Task 2) -->
+                                <div class="mt-4 pt-4 border-t border-slate-700/50">
+                                    <div onclick="openLightbox('lighthouse.png', 'Lighthouse 運作方式與指標簡介')" class="zoom-img-trigger flex items-center space-x-3 bg-slate-950 p-2.5 rounded-lg border border-slate-800 cursor-pointer transition duration-300">
+                                        <div class="w-12 h-12 bg-slate-900 rounded border border-slate-700 flex items-center justify-center text-brand-400 font-bold text-xs overflow-hidden">
+                                            <img src="ChatGPT Image 2026年7月1日 下午11_27_17.png" alt="Lighthouse Diagram" class="w-full h-full object-cover" onerror="this.style.display='none'">
+                                            LH
+                                        </div>
+                                        <div class="flex-1 text-left">
+                                            <span class="block text-[10px] uppercase font-bold text-brand-400">大會簡介圖表</span>
+                                            <span class="block text-xs font-semibold text-slate-200">查看 Google Lighthouse 完整指標架構 ↗</span>
+                                        </div>
+                                    </div>
+                                </div>
+                            </div>
+                            
+                            <!-- Right: Interactive Live Simulator (Adjusted to 10 Clicks) -->
+                            <div class="md:col-span-5 bg-slate-900 border border-brand-500/30 p-4 rounded-xl flex flex-col justify-between">
+                                <div>
+                                    <div class="flex items-center justify-between mb-2">
+                                        <span class="text-xs font-bold text-brand-400">即時 10 次點擊預覽模擬器</span>
+                                        <button onclick="clearInpSimulator()" class="text-[10px] text-slate-400 hover:text-white underline">重設數據</button>
+                                    </div>
+                                    <p class="text-[10px] text-slate-400 mb-2">實際要按 100 次太久，我們用 <strong>10次</strong> 體驗。滿10次將自動剔除最卡的那 1 次(第10卡)，取第 9 卡(90th)做評估：</p>
+                                    
+                                    <div class="flex gap-1.5 mb-2">
+                                        <button onclick="addInpRecord(50)" class="flex-1 py-1.5 bg-emerald-500/10 hover:bg-emerald-500/20 border border-emerald-500/30 rounded text-[9px] text-emerald-300 font-bold transition">流暢 50ms</button>
+                                        <button onclick="addInpRecord(250)" class="flex-1 py-1.5 bg-amber-500/10 hover:bg-amber-500/20 border border-amber-500/30 rounded text-[9px] text-amber-300 font-bold transition">微卡 250ms</button>
+                                        <button onclick="addInpRecord(600)" class="flex-1 py-1.5 bg-rose-500/10 hover:bg-rose-500/20 border border-rose-500/30 rounded text-[9px] text-rose-300 font-bold transition">卡死 600ms</button>
+                                    </div>
+                                </div>
+
+                                <div class="bg-slate-950 p-2.5 rounded border border-slate-800 text-xs space-y-1">
+                                    <div class="flex justify-between">
+                                        <span class="text-[10px] text-slate-400">互動次數 (目標 10 次):</span>
+                                        <span id="inpCount" class="text-white font-bold">0</span>
+                                    </div>
+                                    <div class="flex justify-between">
+                                        <span class="text-[10px] text-slate-400">遞增排序清單:</span>
+                                        <span id="inpList" class="text-brand-300 truncate max-w-[130px] font-mono text-[10px]">-</span>
+                                    </div>
+                                    <div class="text-[9px] text-amber-400 italic" id="inpExplanation">
+                                        (請點擊按鈕來塞入點擊紀錄)
+                                    </div>
+                                    <div class="flex justify-between border-t border-slate-800 pt-1.5 mt-1">
+                                        <span class="font-bold text-slate-300 text-[11px]">最終計算 INP:</span>
+                                        <span id="inpResult" class="font-black text-slate-400">-</span>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                `,
+                notes: "既然這個指標這麼重要，大家一定想問：『那 INP 到底怎麼算？』Google 是取第 98 百分位數。也就是說，使用者點 100 次，我們不看最卡的那 2 次極端值（可能剛好是網路斷掉或系統打噴嚏），而是看第 3 卡的那次。因為現場要點 100 次不切實際，我做了一個『10次預覽模擬器』。大家可以一邊按，我們到 10 次時，它會自動發動演算法剔除最爛的那 1 次，直接抓第 9 卡的值。這樣我就能用最少的時間，向大家 Demo『自動排除極端 outlier』的核心運算流程了！"
+            },
+            {
+                id: 7,
+                title: "網頁卡頓的幕後黑手：長任務 (Long Tasks) 👾",
+                type: "standard",
+                content: `
+                    <div class="space-y-6 my-auto">
+                        <div class="flex flex-col md:flex-row items-center gap-6 bg-slate-900/60 p-5 rounded-xl border border-slate-700">
+                            <div class="flex-1 space-y-4">
+                                <div class="inline-flex items-center space-x-2 bg-red-500/10 text-red-400 px-2.5 py-1 rounded-full text-xs font-bold">
+                                    <span class="w-1.5 h-1.5 bg-red-400 rounded-full animate-ping"></span>
+                                    <span>瀏覽器主線程阻塞機制</span>
+                                </div>
+                                <h4 class="text-xl font-bold text-white">JavaScript 的「單執行緒」困境</h4>
+                                <p class="text-sm text-slate-400 leading-relaxed">
+                                    瀏覽器的 JS 是單執行緒（Main Thread），也就是說同一時間他只能做一件事。
+                                    不管是渲染畫面、計算狀態，還是執行我們的 React 元件，都在同一個頻道上。
+                                </p>
+                            </div>
+                            
+                            <!-- Graphic / Concept Box -->
+                            <div class="w-full md:w-64 bg-slate-950 p-4 rounded-xl border border-slate-800 text-xs space-y-3">
+                                <div class="flex justify-between items-center text-slate-400">
+                                    <span>Task 長度閥值</span>
+                                    <span class="text-rose-400 font-bold">50 毫秒 (ms)</span>
+                                </div>
+                                <div class="h-3 bg-slate-800 rounded-full overflow-hidden relative">
+                                    <div class="h-full bg-emerald-500" style="width: 25%"></div>
+                                    <div class="absolute top-0 bottom-0 left-[25%] right-0 bg-rose-600"></div>
+                                </div>
+                                <div class="flex justify-between text-[10px]">
+                                    <span class="text-emerald-400">正常 (&le;50ms)</span>
+                                    <span class="text-rose-400 font-bold">⚠️ Long Task (&gt;50ms)</span>
+                                </div>
+                            </div>
+                        </div>
+
+                        <div class="bg-red-500/10 border border-red-500/20 p-4 rounded-lg">
+                            <p class="text-xs text-slate-300 leading-relaxed">
+                                🚨 <strong>後果：</strong> 當一個 JS 運算時間超過 50 毫秒，此時主線程就會被塞住。瀏覽器這段時間完全無法重新繪製畫面（Paint）。這時候使用者只要去點按鈕或輸入文字，反應時間就會大大延延迟，INP 分數也跟著宣告爆炸。
+                            </p>
+                        </div>
+                    </div>
+                `,
+                notes: "那為什麼服務生會消失、後面每次舉手都要等很久呢？因為main thread被抓去廚房做『長任務（Long Task）』了！瀏覽器的 JavaScript 只有一條main thread。當使用者點擊按鈕，如果觸發了一個需要大量運算、或是引發大範圍重複render的 JS 任務，且這個任務執行超過 50 毫秒，它在瀏覽器眼裡就叫做 Long Task。此時main thread塞車，瀏覽器沒空去更新畫面，使用者就會覺得網頁當機了、點了沒反應。這就是 INP 分數暴跌的根本原因。"
+            },
+            {
+                id: 8,
+                title: "INP 實戰優化（一）：拆分長任務 ✂️",
+                type: "interactive",
+                content: `
+                    <div class="space-y-4 my-auto">
+                        <p class="text-xs text-slate-400">
+                            優化長任務（Long Task）的核心觀念：<strong>不要一坨程式碼執行到底，把控制權還給瀏覽器。</strong>
+                        </p>
+
+                        <!-- CODE COMPARISON AND LIVE DEMO -->
+                        <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+                            <!-- Code Block 1: Sync Block -->
+                            <div class="bg-slate-900 p-4 rounded-xl border border-slate-700 flex flex-col justify-between">
+                                <div>
+                                    <span class="text-[10px] font-bold text-rose-400 bg-rose-500/10 px-2 py-0.5 rounded">❌ 同步巨型任務 (卡死)</span>
+                                    <pre class="code-font text-[10px] text-slate-300 bg-slate-950 p-2.5 rounded mt-2.5 overflow-x-auto">
+function convertData(items) {
+  // 迴圈一跑到底，阻塞主線程
+  items.forEach(processHugeData); 
+}</pre>
+                                </div>
+                                <button onclick="runLongTask(true)" class="mt-4 w-full py-2 bg-rose-600 hover:bg-rose-500 text-white rounded text-xs font-bold transition flex items-center justify-center space-x-1">
+                                    <span>🔴 模擬同步卡死（凍結畫面）</span>
+                                </button>
+                            </div>
+
+                            <!-- Code Block 2: Async splitting -->
+                            <div class="bg-slate-900 p-4 rounded-xl border-2 border-emerald-500/30 flex flex-col justify-between">
+                                <div>
+                                    <span class="text-[10px] font-bold text-emerald-400 bg-emerald-500/10 px-2 py-0.5 rounded">🟢 善用非阻塞分流 (優雅)</span>
+                                    <pre class="code-font text-[10px] text-slate-300 bg-slate-950 p-2.5 rounded mt-2.5 overflow-x-auto">
+function yieldTask(items) {
+  // 利用 setTimeout 切分任務
+  setTimeout(() => { ... }, 0);
+}</pre>
+                                </div>
+                                <button onclick="runLongTask(false)" class="mt-4 w-full py-2 bg-emerald-600 hover:bg-emerald-500 text-white rounded text-xs font-bold transition flex items-center justify-center space-x-1">
+                                    <span>🟢 模擬非阻塞分流（順暢）</span>
+                                </button>
+                            </div>
+                        </div>
+
+                        <!-- LIVE ANIMATED TESTER -->
+                        <div class="bg-slate-950/80 border border-slate-800 p-3 rounded-lg flex items-center justify-between">
+                            <div class="flex items-center space-x-3">
+                                <!-- Spinner animation -->
+                                <div id="spinner" class="w-8 h-8 rounded-full border-4 border-slate-700 border-t-brand-500 animate-spin"></div>
+                                <div class="text-left">
+                                    <span class="block text-xs font-bold text-white">畫面渲染示範器</span>
+                                    <span class="block text-[10px] text-slate-400">如果點選左邊，這個圓圈會凍結一到兩秒！</span>
+                                </div>
+                            </div>
+                            <span id="simulatorStatus" class="text-xs px-2.5 py-1 rounded bg-slate-800 text-slate-400">閒置中</span>
+                        </div>
+                    </div>
+                `,
+                notes: "遇到這種大計算量的任務該怎麼辦？第一招叫『任務拆分』。如果我們有一大坨複雜的資料要處理，不要讓它一筆跑到底。如程式碼所示，我們可以善用 setTimeout，或者現代瀏覽器支援的 scheduler.yield()。這等於是在程式碼中間跟瀏覽器說：『我先算到這，主線程控制權先還你，你快去更新畫面，晚點我再繼續算。』這樣互動就不會卡頓，INP 就能瞬間拉回安全區。"
+            },
+            {
+                id: 9,
+                title: "關鍵橋梁：渲染瀑布陷阱 (Render Waterfall Trap)",
+                type: "standard",
+                content: `
+                    <div class="space-y-4 my-auto">
+                        <div class="text-center space-y-1">
+                            <p class="text-xs text-brand-400 uppercase tracking-widest font-bold">Cascading Re-renders Bottleneck</p>
+                            <h3 class="text-lg md:text-xl font-black text-white">什麼是「渲染瀑布陷阱」 (Render Waterfall Trap)？</h3>
+                            <p class="text-xs text-slate-400 max-w-xl mx-auto">簡單來說，這就是一種在 React 元件樹中因為「一處狀態更新而波及全家」的骨牌效應。</p>
+                        </div>
+
+                        <!-- FLOW GRAPHIC -->
+                        <div class="grid grid-cols-1 md:grid-cols-5 gap-3 pt-2">
+                            <div class="bg-slate-900 p-3.5 rounded-xl border border-slate-800 text-center relative flex flex-col justify-between">
+                                <span class="text-sm">⚡</span>
+                                <span class="block text-xs font-bold text-slate-200 mt-1">1. 點擊按鈕</span>
+                                <span class="text-[9px] text-slate-500">使用者點擊某個子節點的元件</span>
+                                <div class="hidden md:block absolute top-1/2 -right-2 transform -translate-y-1/2 text-brand-400 font-bold font-mono text-xs">▶</div>
+                            </div>
+
+                            <div class="bg-slate-900 p-3.5 rounded-xl border border-slate-800 text-center relative flex flex-col justify-between">
+                                <span class="text-sm">🔄</span>
+                                <span class="block text-xs font-bold text-slate-200 mt-1">2. 頂層狀態變更</span>
+                                <span class="text-[9px] text-slate-500">狀態放在高處 (觸發全域 Context API 狀態更新)</span>
+                                <div class="hidden md:block absolute top-1/2 -right-2 transform -translate-y-1/2 text-brand-400 font-bold font-mono text-xs">▶</div>
+                            </div>
+
+                            <div class="bg-rose-500/10 p-3.5 rounded-xl border border-rose-500/30 text-center relative flex flex-col justify-between">
+                                <span class="text-sm text-rose-400">💥</span>
+                                <span class="block text-xs font-bold text-rose-300 mt-1">3. 渲染瀑布風暴</span>
+                                <span class="text-[9px] text-rose-400/80">React 遞迴地重繪所有子孫元件 (Cascading)</span>
+                                <div class="hidden md:block absolute top-1/2 -right-2 transform -translate-y-1/2 text-brand-400 font-bold font-mono text-xs">▶</div>
+                            </div>
+
+                            <div class="bg-rose-500/10 p-3.5 rounded-xl border border-rose-500/30 text-center relative flex flex-col justify-between">
+                                <span class="text-sm text-rose-400">⏱️</span>
+                                <span class="block text-xs font-bold text-rose-300 mt-1">4. 虛擬 DOM 塞車</span>
+                                <span class="text-[9px] text-rose-400/80">大量組件比對產生 >50ms, 產生 Long Task</span>
+                                <div class="hidden md:block absolute top-1/2 -right-2 transform -translate-y-1/2 text-brand-400 font-bold font-mono text-xs">▶</div>
+                            </div>
+
+                            <div class="bg-red-950 p-4 rounded-xl border border-red-500 text-center flex flex-col justify-between animate-pulse">
+                                <span class="text-base text-red-400">🚨</span>
+                                <span class="block text-xs font-bold text-red-200 mt-2">5. INP 爆發 (卡死)</span>
+                                <span class="text-[10px] text-red-300/80 mt-1">畫面延遲 paint，呈不靈敏狀態</span>
+                            </div>
+                        </div>
+
+                        <div class="bg-slate-950/70 p-3 rounded-lg border border-slate-800 text-center text-xs text-slate-400">
+                            💡 <strong>核心橋梁：</strong> 我們需要一種能<strong>繞過大範圍元件重繪</strong>、精準修改 DOM 的狀態機制 —— 這就是 <strong>Zustand & Signals</strong> 誕生的時代背景。
+                        </div>
+                        <div class="bg-slate-950/70 p-2.5 rounded-lg border border-slate-800 text-center text-xs text-slate-400">
+                            💡 <strong>中英小筆記</strong>：<strong>Render Waterfall Trap</strong> 又稱 <strong>Cascading Re-renders</strong>。在傳統 React 設計中，父元件 Re-render 時，底下所有子元件預設都會跟著重繪（即使 props 沒變）。當這趟瀑布沖得太深太大，就成了阻塞主執行緒的元兇！
+                        </div>
+                    </div>
+                `,
+                notes: "這裡為大家解釋一下常常聽到的『渲染瀑布陷阱 (Render Waterfall Trap)』。很多時候我們網頁卡，不是因為寫了複雜的數學演算法，而是因為骨牌效應（Cascading Re-renders）。在 React 的預設運作邏輯下：只要某個元件的狀態一變，React 就會一路『往下遞迴』把所有子元件全部重新運算一遍。如果你把一個頻繁變動的狀態掛在最頂端（比如 Context API），你點擊一個小地方，整個元件樹 90% 的無辜群眾都會被拉起來重新 Render 與虛擬 DOM 比對。這股瀑布由上往下沖的速度極快、範圍極廣，很快就累積成了超過 50 毫秒的 Long Task。這就是 INP 爆掉、使用者感覺卡死的罪魁禍首。"
+            },
+            {
+                id: 10,
+                title: "INP 實戰優化（二）：精準渲染與輕量狀態 ⚡",
+                type: "standard",
+                content: `
+                    <div class="space-y-6 my-auto">
+                        <div class="grid grid-cols-1 md:grid-cols-2 gap-6">
+                            <!-- Traditional pain point -->
+                            <div class="bg-slate-800/40 p-5 rounded-xl border border-slate-700/50 flex flex-col justify-between">
+                                <div>
+                                    <h3 class="text-sm font-bold text-rose-400 mb-3 flex items-center space-x-2">
+                                        <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M10 14l2-2m0 0l2-2m-2 2l-2-2m2 2l2 2m7-2a9 9 0 11-18 0 9 9 0 0118 0z"></path></svg>
+                                        <span>傳統痛點 (Context API)</span>
+                                    </h3>
+                                    <div class="bg-slate-900/60 p-4 rounded-lg text-xs text-slate-400 leading-relaxed space-y-2">
+                                        <p>React 內建的 Context 或者是過重的狀態管理中心在更改資料時：</p>
+                                        <div class="p-2 bg-rose-500/5 border border-rose-500/10 rounded">
+                                            🚨 <strong>頂層一有資料改變，整棵組件樹無關的元件通通都必須重跑 Re-render。</strong>
+                                        </div>
+                                        <p>這會使主線程充滿了長達數百毫秒的 JavaScript 計算垃圾，網頁瞬間卡死。</p>
+                                    </div>
+                                </div>
+                            </div>
+
+                            <!-- Modern solution -->
+                            <div class="bg-slate-800/40 p-5 rounded-xl border-2 border-brand-500/30 flex flex-col justify-between">
+                                <div>
+                                    <h3 class="text-sm font-bold text-emerald-400 mb-3 flex items-center space-x-2">
+                                        <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z"></path></svg>
+                                        <span>新世代方案：Zustand / Signals</span>
+                                    </h3>
+                                    <div class="bg-slate-900/60 p-4 rounded-lg text-xs text-slate-400 leading-relaxed space-y-2">
+                                        <p>採用現代微型響應式狀態，不再把所有元件連鎖喚醒：</p>
+                                        <div class="p-2 bg-emerald-500/5 border border-emerald-500/10 rounded">
+                                            🟢 <strong>「點擊哪裡，就只喚醒並更新跟它關聯的那一個元件。」</strong>
+                                        </div>
+                                        <p>大幅減少不必要的虛擬 DOM 渲染開銷，維持瀏覽器的 INP 在 200 毫秒綠燈區。</p>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                `,
+                notes: "第二招跟我們的狀態管理架構有關。以前大家習慣用 Context API 或大型狀態管理中心，常常點一個按鈕，結果引發全網頁很多無關的元件跟著重複渲染。現在更推薦大家在專案中嘗試輕量化的 Zustand 或各框架都在擁抱的 Signals 機制。它們的特點是能做到精準的微型更新，點擊時只渲染被改變的那個元件，主線程的負擔小了，INP 自然就變好了。"
+            },
+            {
+                id: 11,
+                title: "優化 INP 的秘密武器：Zustand 與 Signals 🧠",
+                type: "standard",
+                content: `
+                    <div class="space-y-4 my-auto">
+                        <div class="grid grid-cols-1 md:grid-cols-12 gap-5">
+                            <!-- Zustand Column -->
+                            <div class="md:col-span-6 bg-slate-850 p-4 rounded-xl border border-slate-700/50 flex flex-col justify-between">
+                                <div class="space-y-3">
+                                    <div class="flex items-center justify-between">
+                                        <span class="bg-brand-500/20 text-brand-300 font-bold px-2 py-0.5 rounded text-[10px] uppercase">Zustand 精準訂閱</span>
+                                        <span class="text-[10px] text-slate-500">Out-of-tree Store</span>
+                                    </div>
+                                    <p class="text-xs text-slate-300 leading-relaxed">
+                                        <strong>「獨立於組件樹」 (Out-of-tree)</strong>：是指狀態不再強綁在 React 元件內部，而是保存在元件樹外部的一個純 JS 物件中。透過 Selector 做精準「點對點快遞」訂閱。
+                                    </p>
+                                    <pre class="code-font text-[9px] text-slate-300 bg-slate-950 p-2 rounded border border-slate-800">
+const count = useStore(state => state.count);</pre>
+
+                                    <!-- BEAUTIFUL SMITH REVIEW CARD (Task 1) -->
+                                    <a href="https://docs.google.com/presentation/d/1Quygq0Co5Wwq-U88qRzmdGYo9cDfudT1_P41ZfPv008/edit?usp=sharing" target="_blank" class="flex items-center space-x-2 bg-gradient-to-r from-emerald-500/10 to-teal-500/10 hover:from-emerald-500/20 hover:to-teal-500/20 border border-emerald-500/30 hover:border-emerald-500/50 text-emerald-300 px-3 py-1.5 rounded-lg text-[10px] font-semibold transition mt-1 shadow-sm">
+                                        <svg class="w-3.5 h-3.5 text-emerald-400 animate-pulse" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 6.253v13m0-13C10.832 5.477 9.246 5 7.5 5S4.168 5.477 3 6.253v13C4.168 18.477 5.754 18 7.5 18s3.332.477 4.5 1.253m0-13C13.168 5.477 14.754 5 16.5 5c1.747 0 3.332.477 4.5 1.253v13C19.832 18.477 18.247 18 16.5 18c-1.746 0-3.332.477-4.5 1.253"></path></svg>
+                                        <span>Smith 主題複習：React 狀態管理 ↗</span>
+                                    </a>
+                                </div>
+
+                                <!-- THUMBNAIL 1 (Task 2) -->
+                                <div onclick="openLightbox('zustand.png', 'Zustand 狀態管理架構簡介')" class="zoom-img-trigger mt-3 flex items-center space-x-2 bg-slate-900 p-2 rounded-lg border border-slate-800 cursor-pointer transition duration-300">
+                                    <div class="w-10 h-10 bg-slate-950 rounded border border-slate-700 flex items-center justify-center text-brand-300 font-mono text-[9px] overflow-hidden">
+                                        <img src="ChatGPT Image 2026年7月1日 下午11_27_14.png" alt="Zustand diagram" class="w-full h-full object-cover" onerror="this.style.display='none'">
+                                        ZSD
+                                    </div>
+                                    <div class="flex-1 text-left">
+                                        <span class="block text-[9px] uppercase font-bold text-slate-400">原理解析一</span>
+                                        <span class="block text-[10px] font-semibold text-slate-200">看 Zustand 原始碼與使用架構 ↗</span>
+                                    </div>
+                                </div>
+                            </div>
+
+                            <!-- Signals Column -->
+                            <div class="md:col-span-6 bg-slate-850 p-4 rounded-xl border border-slate-700/50 flex flex-col justify-between">
+                                <div class="space-y-3">
+                                    <div class="flex items-center justify-between">
+                                        <span class="bg-emerald-500/20 text-emerald-300 font-bold px-2 py-0.5 rounded text-[10px] uppercase">Signals 細粒度更新</span>
+                                        <span class="text-[10px] text-slate-500">Fine-grained</span>
+                                    </div>
+                                    <p class="text-xs text-slate-300 leading-relaxed">
+                                        <strong>「直達 DOM 節點」 (Fine-grained)</strong>：在資料與實際 HTML 畫面節點之間建立「高鐵直達車」，資料變更時，直接修改對應 DOM 的內文，直接繞過 React 的組件重繪機制！
+                                    </p>
+                                    <pre class="code-font text-[9px] text-slate-300 bg-slate-950 p-2 rounded border border-slate-800">
+const count = signal(0);</pre>
+
+                                    <!-- FILL SPACE FOR DESIGN SYMMETRY -->
+                                    <div class="h-[24px] hidden md:block"></div>
+                                </div>
+
+                                <!-- THUMBNAIL 2 (Task 2) -->
+                                <div onclick="openLightbox('signals.png', 'Signals 細粒度響應式更新流程比對')" class="zoom-img-trigger mt-3 flex items-center space-x-2 bg-slate-900 p-2 rounded-lg border border-slate-800 cursor-pointer transition duration-300">
+                                    <div class="w-10 h-10 bg-slate-950 rounded border border-slate-700 flex items-center justify-center text-emerald-400 font-mono text-[9px] overflow-hidden">
+                                        <img src="ChatGPT Image 2026年7月1日 下午11_27_10.png" alt="Signals diagram" class="w-full h-full object-cover" onerror="this.style.display='none'">
+                                        SIG
+                                    </div>
+                                    <div class="flex-1 text-left">
+                                        <span class="block text-[9px] uppercase font-bold text-slate-400">原理解析二</span>
+                                        <span class="block text-[10px] font-semibold text-slate-200">看 React State vs Signals 流程 ↗</span>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                `,
+                notes: "💡講稿技巧（你可以直接用這套接地氣的比喻）：\n\n『大家常常聽到「獨立於組件樹 (Out-of-tree)」這句術語，聽起來很抽象對不對？其實我們用送貨來比喻。以前我們在 React 裡用 useState 或 Context API 送資料，就像大樓（組件樹）的管委會收到一個包裹。大樓管理員非常恪盡職守，他會透過廣播通知「全大樓所有住戶」通通下樓，排隊逐一確認這個包裹是不是自己的。這就叫做 Cascading Re-renders（渲染瀑布）。\n\n而 Zustand 叫做精準訂閱（Out-of-tree Store）。它把狀態放在大樓的外面（純 JS 物件中）。當你的資料一變，它完全不驚動大樓管委會，而是像現代專業外送員一樣，直接敲 2 樓 B 室（使用這個 state 的元件）的門送貨。全大樓其他住戶繼續倒頭大睡，這就叫「獨立於組件樹之外的精準訂閱」！\n\n至於 Signals 更厲害。它不只不叫住戶下樓，它直接派一輛遙控飛機，把包裹從窗外直接精準丟進住戶的客廳。它甚至不用重新執行那個元件的 JavaScript function，直接去改 HTML 的字。這在效能調優上，簡直就是降維打擊！』"
+            },
+            {
+                id: 12,
+                title: "Part II：別再等打包了！底層工具的 Rust 革命 🦀",
+                type: "standard",
+                content: `
+                    <div class="space-y-6 my-auto">
+                        <div class="flex flex-col md:flex-row items-center gap-6 bg-slate-900/60 p-5 rounded-xl border border-slate-700">
+                            <div class="flex-1 space-y-4">
+                                <span class="bg-amber-500/10 text-amber-400 px-3 py-1 rounded text-xs font-black uppercase tracking-wide">
+                                    JS 打包效能天花板
+                                </span>
+                                <h3 class="text-2xl font-bold text-white">JavaScript 限制了打包速度</h3>
+                                <p class="text-sm text-slate-400 leading-relaxed">
+                                    我們日常寫網頁，不管是 React、TypeScript 還是 Vue，瀏覽器直接是看不懂的。
+                                    我們需要經過「打包工具」分析語法樹，把它們壓製成瀏覽器能讀的 JS 與 CSS。
+                                    但在大型專案下，用 JS 寫的 Webpack 或 Rollup 打包引擎實在是太慢了。
+                                </p>
+                            </div>
+                            
+                            <div class="w-full md:w-64 bg-slate-950 p-4 rounded-xl border border-slate-800 text-center space-y-3">
+                                <span class="block text-xs font-bold text-slate-400">打包工具大翻修</span>
+                                <div class="inline-block p-3 bg-brand-500/10 rounded-full text-brand-400">
+                                    <svg class="w-8 h-8" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19.428 15.428a2 2 0 00-1.022-.547l-2.387-.477a6 6 0 00-3.86.517l-.318.158a6 6 0 01-3.86.517L6.05 15.21a2 2 0 00-1.806.547M8 4h8l-1 1v5.172a2 2 0 00.586 1.414l5 5c1.26 1.26.367 3.414-1.415 3.414H4.828c-1.782 0-2.674-2.154-1.414-3.414l5-5A2 2 0 009 10.172V5L8 4z"></path></svg>
+                                </div>
+                                <p class="text-[10px] text-slate-500">
+                                    2026 前端界共識：<br><strong class="text-brand-300">「用 Rust 重寫前端底層工具鏈」</strong>
+                                </p>
+                            </div>
+                        </div>
+
+                        <!-- BEAUTIFUL ANDERS REVIEW CARD (Task 1) -->
+                        <div class="flex flex-col md:flex-row items-start md:items-center justify-between bg-slate-800/60 p-4 rounded-xl border border-slate-700/50 gap-3">
+                            <div class="text-left">
+                                <span class="text-xs font-bold text-slate-400">🦀 覺得 Rust 有點熟悉嗎？</span>
+                            </div>
+                            <a href="https://docs.google.com/presentation/d/1Quygq0Co5Wwq-U88qRzmdGYo9cDfudT1_P41ZfPv008/edit?usp=sharing" target="_blank" class="flex items-center space-x-2 bg-gradient-to-r from-orange-500/10 to-amber-500/10 hover:from-orange-500/20 hover:to-amber-500/20 border border-orange-500/30 hover:border-orange-500/50 text-orange-300 px-3 py-1.5 rounded-lg text-[10px] font-semibold transition shadow-sm w-full md:w-auto justify-center">
+                                <svg class="w-3.5 h-3.5 text-orange-400 animate-pulse" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 10V3L4 14h7v7l9-11h-7z"></path></svg>
+                                <span>Anders 主題複習：Rust 高效編譯實戰 ↗</span>
+                            </a>
+                        </div>
+                    </div>
+                `,
+                notes: "聊完前端網頁的效能，我們回頭來聊聊我們工程師自己的開發體驗（DX）。JavaScript 雖然擅長寫網頁，幕後打包、分析卻很慢。這幾年前端工具鏈掀起了一場大革命，就是『用 Rust 重寫一切』。因為 Rust 擁有優秀的多執行緒 and 效能，對打包工具來說是降維打擊。另外，Anders 之前為大家分享過 Rust 編譯原理的 Slides，我也做成精緻卡片放在下面，方便大家隨時跳轉複習。"
+            },
+            {
+                id: 13,
+                title: "Webpack 的超跑級替代方案：Rspack 📦",
+                type: "interactive",
+                content: `
+                    <div class="space-y-4 my-auto">
+                        <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+                            <!-- Code setting -->
+                            <div class="space-y-3">
+                                <div class="flex items-center space-x-2 text-xs font-bold text-brand-300">
+                                    <span class="bg-brand-500/20 text-brand-400 px-1.5 py-0.5 rounded">Rspack config</span>
+                                    <span>寫法完全相同！</span>
+                                </div>
+                                <p class="text-[10px] text-slate-400 leading-relaxed">
+                                    由字節跳動 ByteDance Ltd. 開源。最厲害之處在於相容 Webpack 生態，不需重構專案！
+                                </p>
+                                <pre class="code-font text-[9px] text-slate-300 bg-slate-950 p-3 rounded border border-slate-800 overflow-x-auto">
+const rspack = require('@rspack/core');
+module.exports = {
+  entry: './src/index.js',
+  plugins: [
+    new rspack.HtmlRspackPlugin()
+  ]
+};</pre>
+                            </div>
+
+                            <!-- INTERACTIVE BUILD RACE -->
+                            <div class="bg-slate-900 border border-slate-700/60 p-4 rounded-xl flex flex-col justify-between">
+                                <div>
+                                    <span class="text-xs font-bold text-slate-300 block mb-2">📦 現場打包競速模擬大賽</span>
+                                    <p class="text-[10px] text-slate-400 mb-3">試著按下下方兩個測試，看看編譯時間差距有多震撼！</p>
+                                </div>
+
+                                <div class="space-y-4 my-2">
+                                    <!-- Webpack Progress -->
+                                    <div class="space-y-1">
+                                        <div class="flex justify-between text-[10px]">
+                                            <span class="text-slate-400">Webpack 打包 (JavaScript)</span>
+                                            <span id="webpackTime" class="text-rose-400 font-bold">-</span>
+                                        </div>
+                                        <div class="h-2.5 bg-slate-950 rounded-full overflow-hidden">
+                                            <div id="webpackBar" class="h-full bg-rose-600 transition-all duration-300" style="width: 0%"></div>
+                                        </div>
+                                    </div>
+
+                                    <!-- Rspack Progress -->
+                                    <div class="space-y-1">
+                                        <div class="flex justify-between text-[10px]">
+                                            <span class="text-slate-400">Rspack 打包 (Rust 🚀)</span>
+                                            <span id="rspackTime" class="text-emerald-400 font-bold">-</span>
+                                        </div>
+                                        <div class="h-2.5 bg-slate-950 rounded-full overflow-hidden">
+                                            <div id="rspackBar" class="h-full bg-emerald-500 transition-all duration-100" style="width: 0%"></div>
+                                        </div>
+                                    </div>
+                                </div>
+
+                                <div class="flex gap-2 mt-2">
+                                    <button id="btnRunWebpack" onclick="runBuildSimulation('webpack')" class="flex-1 py-1.5 bg-slate-800 hover:bg-slate-700 text-slate-300 text-[10px] rounded font-bold border border-slate-700">跑 Webpack</button>
+                                    <button id="btnRunRspack" onclick="runBuildSimulation('rspack')" class="flex-1 py-1.5 bg-brand-600 hover:bg-brand-500 text-white text-[10px] rounded font-bold">跑 Rspack (Rust)</button>
+                                </div>
+                            </div>
+                        </div>
+
+                        <div class="bg-slate-900/40 p-3 rounded border border-slate-700/40 text-xs text-center text-slate-400">
+                            💡 我們一行 Rust 都不用寫，因為它把複雜的編譯封裝在底層，大家一樣是用 JS/TS 寫網頁！
+                        </div>
+                    </div>
+                `,
+                notes: "自首一下，即使之前Anders講過這個主題，其實我自己也沒有真的去玩Rust。但這就是新工具最厲害的地方：它把 Rust 封裝在底層，前端工程師完全不需要改變開發習慣。大家看投影片上的設定檔，它跟 Webpack 基本上長得一模一樣！你一樣是在寫 JavaScript、用 npm 安裝套件。唯一改變的是，Rspack 幫你把打包核心換成了 Rust 二進位檔案。它就像是幫我們的舊專案換上一顆超跑引擎，原本要跑 1 分鐘的打包，現在 5 秒鐘就噴完了。"
+            },
+            {
+                id: 14,
+                title: "Vite 的未來心臟：Rolldown ⚡",
+                type: "standard",
+                content: `
+                    <div class="space-y-6 my-auto">
+                        <div class="grid grid-cols-1 md:grid-cols-2 gap-6">
+                            <!-- Vite painpoint -->
+                            <div class="bg-slate-800/40 p-5 rounded-xl border border-slate-700/50">
+                                <h3 class="text-sm font-bold text-amber-400 mb-3 flex items-center space-x-2">
+                                    <span>⚠️ 過去 Vite 生態的小遺憾</span>
+                                </h3>
+                                <div class="bg-slate-900/60 p-4 rounded-lg text-xs text-slate-400 leading-relaxed space-y-2">
+                                    <p>大家現在開新專案大多使用 Vite。Vite 很棒，但一直存在一個架構分歧：</p>
+                                    <p class="p-2 bg-slate-950 rounded text-slate-300">
+                                        💡 開發環境用 <strong class="text-brand-400">esbuild</strong>（快如閃電）<br>
+                                        ➡️ 生產環境打包用 <strong class="text-rose-400">Rollup</strong>（JS 寫的，相對慢）
+                                    </p>
+                                    <p>這導致有些特定外掛插件，在開發與生產環境打包時，會偶爾遇到行為不一致的坑。</p>
+                                </div>
+                            </div>
+
+                            <!-- Rolldown solution -->
+                            <div class="bg-slate-800/40 p-5 rounded-xl border-2 border-brand-500/20">
+                                <h3 class="text-sm font-bold text-emerald-400 mb-3 flex items-center space-x-2">
+                                    <span>⚡ Rolldown：統一與極致速度</span>
+                                </h3>
+                                <div class="bg-slate-900/60 p-4 rounded-lg text-xs text-slate-400 leading-relaxed space-y-2">
+                                    <p>Vite 團隊官方下場，親自用 Rust 重寫了一個取代 Rollup 的新工具：<strong>Rolldown</strong>。</p>
+                                    <p class="p-2 bg-emerald-500/5 border border-emerald-500/10 rounded text-emerald-300">
+                                        🎯 目標：將 Vite 的開發與生產環境打包，底層完美統一！
+                                    </p>
+                                    <p>等 Rolldown 開發完成並內建進 Vite 後，我們不需要手動設定它，Vite 的打包速度直接迎來再次起飛！</p>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                `,
+                notes: "那如果我們新專案是用 Vite 呢？Vite 團隊目前正在全力開發 Rolldown。以前 Vite 的小缺點是：本地開發很快，但上線打包時是用 Rollup，有時候會遇到兩邊行為不一致的坑。未來 Rolldown正式上線並全面整合進 Vite 後，無論是本地開發還是最終打包，都會是一瞬間的事，這非常值得期待。"
+            },
+            {
+                id: 15,
+                title: "一分鐘看懂 Rspack 與 Rolldown 的定位 🏁",
+                type: "standard",
+                content: `
+                    <div class="space-y-6 my-auto">
+                        <div class="overflow-x-auto rounded-xl border border-slate-700">
+                            <table class="w-full text-left border-collapse text-xs md:text-sm">
+                                <thead>
+                                    <tr class="bg-slate-800/80 border-b border-slate-700 text-slate-300">
+                                        <th class="p-3 font-bold">工具名稱</th>
+                                        <th class="p-3 font-bold">陣營 / 開發團隊</th>
+                                        <th class="p-3 font-bold">核心任務（它是來救誰的？）</th>
+                                    </tr>
+                                </thead>
+                                <tbody class="divide-y divide-slate-800 bg-slate-900/40">
+                                    <tr class="hover:bg-slate-800/30">
+                                        <td class="p-3 font-bold text-white flex items-center space-x-2">
+                                            <span class="text-lg">📦</span> <span>Rspack</span>
+                                        </td>
+                                        <td class="p-3 text-slate-300">Webpack 陣營 <br><span class="text-[10px] text-slate-500">(字節跳動)</span></td>
+                                        <td class="p-3 text-slate-400">
+                                            <strong>拯救「巨大、古老」的 Webpack 舊專案</strong><br>
+                                            <span class="text-[11px] text-amber-400/90">➡️ 幾乎 100% 相容舊設定，換了就變超跑。</span>
+                                        </td>
+                                    </tr>
+                                    <tr class="hover:bg-slate-800/30">
+                                        <td class="p-3 font-bold text-white flex items-center space-x-2">
+                                            <span class="text-lg">⚡</span> <span>Rolldown</span>
+                                        </td>
+                                        <td class="p-3 text-slate-300">Vite 陣營 <br><span class="text-[10px] text-slate-500">(Vite 官方)</span></td>
+                                        <td class="p-3 text-slate-400">
+                                            <strong>作為「現代、新專案」未來的核心心臟</strong><br>
+                                            <span class="text-[11px] text-emerald-400/90">➡️ 未來直接內建在 Vite 裡，換代時完全無感。</span>
+                                        </td>
+                                    </tr>
+                                </tbody>
+                            </table>
+                        </div>
+
+                        <div class="bg-slate-950/60 p-4 rounded-xl text-center border border-slate-800">
+                            <p class="text-xs text-slate-300">
+                                🏆 <strong class="text-brand-400">核心結論：</strong> 兩者不是競爭對手，而是各自終結了前端兩大生態系的「慢打包」時代。我們<strong>一行 Rust 都不用學。</strong>
+                            </p>
+                        </div>
+                    </div>
+                `,
+                notes: "講了這兩個聽起來很像、又很陌生的名詞，我用這張表幫大家做個總結。簡單來說，Rspack 就像是把我們家裡那台老舊的 Webpack 老爺車直接換上超跑引擎，用來拯救跑不動的巨大舊專案；而 Rolldown 則是 Vite 團隊正在工廠裡秘密打造的下一代全新未來概念車。這兩個工具雖然由不同團隊開發，但它們的目的完全一致——就是聯手把慢吞吞的 JavaScript 打包時代送進歷史。我們一行 Rust 都不用學，坐享其成即可！"
+            },
+            {
+                id: 16,
+                title: "理性看待新技術：團隊什麼時候該換？ ⚖️",
+                type: "standard",
+                content: `
+                    <div class="space-y-6 my-auto">
+                        <div class="flex items-center justify-between p-4 bg-slate-900 rounded-xl border border-slate-800">
+                            <div class="text-left">
+                                <span class="block text-xs font-bold text-brand-400 uppercase tracking-wide">成熟工程師的心態</span>
+                                <span class="block text-base font-black text-white mt-1">我們不是技術狂熱者，我們解決實際業務問題。</span>
+                            </div>
+                            <span class="text-3xl">⚖️</span>
+                        </div>
+
+                        <div class="grid grid-cols-1 md:grid-cols-3 gap-4">
+                            <!-- Rule 1 -->
+                            <div class="bg-slate-800/40 p-4 rounded-xl border border-slate-700/50">
+                                <span class="text-xs text-slate-400 font-bold block mb-1.5">情況一：專案極為穩定</span>
+                                <h4 class="text-sm font-black text-white mb-2">🟢 保持不動</h4>
+                                <p class="text-[11px] text-slate-400 leading-relaxed">
+                                    如果現有專案跑得好好的、效能和建置速度都合格，沒有效能危機，不建議為了追新而追新，維持穩定最好。
+                                </p>
+                            </div>
+
+                            <!-- Rule 2 -->
+                            <div class="bg-slate-800/40 p-4 rounded-xl border border-slate-700/50">
+                                <span class="text-xs text-slate-400 font-bold block mb-1.5">情況二：舊專案大到開發痛苦</span>
+                                <h4 class="text-sm font-black text-amber-400 mb-2">🟠 評估引入 Rspack</h4>
+                                <p class="text-[11px] text-slate-400 leading-relaxed">
+                                    如果公司的 Webpack 舊專案，每次打包啟動都要跑去倒水，這時候把 Webpack 換成 Rspack 是非常安全的解放生產力手段。
+                                </p>
+                            </div>
+
+                            <!-- Rule 3 -->
+                            <div class="bg-slate-800/40 p-4 rounded-xl border border-slate-700/50">
+                                <span class="text-xs text-slate-400 font-bold block mb-1.5">情況三：新專案剛要開張</span>
+                                <h4 class="text-sm font-black text-emerald-400 mb-2">🔵 直接使用現代架構</h4>
+                                <p class="text-[11px] text-slate-400 leading-relaxed">
+                                    毫無疑問，直接開 Vite 與新版狀態管理架構。等到未來內建 Rolldown 時，即可無感升級極致效能。
+                                </p>
+                            </div>
+                        </div>
+                    </div>
+                `,
+                notes: "身為成熟的工程師，我們不能看到新東西就盲目推翻重寫。我的理性建議是：如果現有專案跑得好好的、效能也合規，不需要動它。但如果公司的舊專案已經大到建置時間嚴重影響大家的開發體驗或 CI/CD 效率，這時候 Rspack 就會是一個完全可以投入生產環境的成熟選擇。"
+            },
+            {
+                id: 17,
+                title: "明天上班就能試試看的行動清單 (Takeaways) ✅",
+                type: "standard",
+                content: `
+                    <div class="space-y-6 my-auto">
+                        <div class="space-y-4">
+                            <!-- Action 1 -->
+                            <div class="flex items-start space-x-3 bg-slate-800/80 p-4 rounded-xl border border-slate-700">
+                                <div class="bg-brand-500/10 text-brand-400 font-black px-2.5 py-1 rounded text-xs">
+                                    01
+                                </div>
+                                <div>
+                                    <h4 class="text-sm font-bold text-white">打開 Chrome DevTools 抓紅角角</h4>
+                                    <p class="text-xs text-slate-400 leading-relaxed mt-1">
+                                        在 Performance 面板錄製一段使用者操作，去尋找有沒有任何執行超過 <strong>50 毫秒 (ms)</strong>、被標記成紅角的 Long Task，那是我們網站卡頓的罪魁禍首。
+                                    </p>
+                                </div>
+                            </div>
+
+                            <!-- Action 2 -->
+                            <div class="flex items-start space-x-3 bg-slate-800/80 p-4 rounded-xl border border-slate-700">
+                                <div class="bg-brand-500/10 text-brand-400 font-black px-2.5 py-1 rounded text-xs">
+                                    02
+                                </div>
+                                <div>
+                                    <h4 class="text-sm font-bold text-white">安裝 Web Vitals 官方擴充功能監測 INP</h4>
+                                    <p class="text-xs text-slate-400 leading-relaxed mt-1">
+                                        在本地開發階段就邊點點看，看看每次互動是否都能安穩維持在 <strong>200ms 的綠色標準線</strong> 內。
+                                    </p>
+                                </div>
+                            </div>
+
+                            <!-- Action 3 -->
+                            <div class="flex items-start space-x-3 bg-slate-800/80 p-4 rounded-xl border border-slate-700">
+                                <div class="bg-brand-500/10 text-brand-400 font-black px-2.5 py-1 rounded text-xs">
+                                    03
+                                </div>
+                                <div>
+                                    <h4 class="text-sm font-bold text-white">開拓選型視野，關注輕量響應式</h4>
+                                    <p class="text-xs text-slate-400 leading-relaxed mt-1">
+                                        未來有新專案或工具鏈優化需求時，把 <strong>Zustand / Signals</strong> 或 <strong>Rust 工具鏈 (Rspack)</strong> 納入架構評估選型。
+                                    </p>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                `,
+                notes: "最後，給大家三個行動：第一，打開 Chrome DevTools 錄製一段專案的操作，看看有沒有超過 50 毫秒的紅角角長任務。第二，安裝 Web Vitals 官方擴充功能，邊點網頁邊觀察自己的 INP。第三，在心中埋下一顆種子，未來的 Web 只會要求越來越快，而我們已經知道優化的方向了。"
+            },
+            {
+                id: 18,
+                title: "Thank You! Q&A 👋",
+                type: "standard",
+                content: `
+                    <div class="flex flex-col items-center justify-center text-center space-y-6 my-auto py-10">
+                        <div class="w-20 h-20 bg-brand-500/10 text-brand-400 rounded-full flex items-center justify-center mx-auto mb-2">
+                            <svg class="w-10 h-10" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8 12h.01M12 12h.01M16 12h.01M21 12c0 4.418-4.03 8-9 8a9.863 9.863 0 01-4.255-.949L3 20l1.395-3.72C3.512 15.042 3 13.574 3 12c0-4.418 4.03-8 9-8s9 3.582 9 8z"></path></svg>
+                        </div>
+                        <h2 class="text-3xl md:text-4xl font-black text-white">Thank You! (Q&A)</h2>
+                        <div class="max-w-md bg-slate-900/60 p-5 rounded-xl border border-slate-700/60 space-y-3 text-sm text-left mx-auto">
+                            <ul class="list-disc list-inside space-y-2 text-slate-400 text-xs">
+                                <li>我們目前手上的專案，打包最久要花多少時間？</li>
+                                <li>大家在日常開發中，有遇過什麼難解的網頁卡頓經驗嗎？</li>
+                            </ul>
+                        </div>
+                    </div>
+                `,
+                notes: "謝謝大家今天的聆聽！接下來的時間，大家可以自由交流一下。比如我們目前手上的專案，大家覺得打包最痛苦、最花時間的是哪一個？或者有沒有人遇過什麼難解的網頁卡頓問題，我們也可以一起討論。謝謝！"
+            }
+        ];
+
+        // ----------------------------------------------------
+        // SYSTEM STATE & CONTROLLER
+        // ----------------------------------------------------
+        let currentSlideIndex = 0;
+        let notesVisible = true;
+        let timerSeconds = 0;
+        let timerInterval = null;
+
+        // Interactive INP State
+        let inpRecords = [];
+
+        // Initialize presentation
+        window.onload = function() {
+            renderSlide();
+            buildSelector();
+            startTimer();
+            
+            // Bind keyboard arrows
+            document.addEventListener('keydown', function(e) {
+                if (e.key === 'ArrowRight' || e.key === ' ') {
+                    nextSlide();
+                } else if (e.key === 'ArrowLeft') {
+                    prevSlide();
+                } else if (e.key === 'Escape') {
+                    closeLightbox();
+                }
+            });
+        };
+
+        // Render current slide
+        function renderSlide() {
+            const slide = slides[currentSlideIndex];
+            
+            // Render Header title
+            document.getElementById('slideBody').innerHTML = `
+                ${slide.type !== 'title' ? `<h3 class="text-lg md:text-2xl font-extrabold text-white mb-6 border-b border-slate-700/50 pb-3 flex items-center space-x-2"><span class="text-brand-400">#</span> <span>${slide.title}</span></h3>` : ''}
+                <div class="flex-1 flex flex-col justify-center">
+                    ${slide.content}
+                </div>
+            `;
+            
+            // Render Notes
+            document.getElementById('slideNotes').innerText = slide.notes;
+            
+            // Update UI elements
+            document.getElementById('currentSlideNum').innerText = currentSlideIndex + 1;
+            document.getElementById('totalSlideNum').innerText = slides.length;
+            
+            // Selector dropdown update
+            document.getElementById('slideSelector').value = currentSlideIndex;
+
+            // Progress bar
+            const percent = ((currentSlideIndex + 1) / slides.length) * 100;
+            document.getElementById('progressBar').style.width = `${percent}%`;
+
+            // Clear temporary simulators states when shifting slides
+            inpRecords = [];
+        }
+
+        // Dropdown dynamic build
+        function buildSelector() {
+            const selector = document.getElementById('slideSelector');
+            selector.innerHTML = '';
+            slides.forEach((slide, index) => {
+                const opt = document.createElement('option');
+                opt.value = index;
+                opt.innerText = `P.${index + 1} - ${slide.title.replace(/<[^>]*>/g, '').substring(0, 15)}...`;
+                selector.appendChild(opt);
+            });
+        }
+
+        // Navigation
+        function nextSlide() {
+            if (currentSlideIndex < slides.length - 1) {
+                currentSlideIndex++;
+                renderSlide();
+            } else {
+                showToast("這已是最後一頁簡報！");
+            }
+        }
+
+        // Previous
+        function prevSlide() {
+            if (currentSlideIndex > 0) {
+                currentSlideIndex--;
+                renderSlide();
+            } else {
+                showToast("這已是第一頁簡報！");
+            }
+        }
+
+        function jumpToSlide(index) {
+            currentSlideIndex = parseInt(index);
+            renderSlide();
+        }
+
+        // Toggle notes panel
+        function toggleNotes() {
+            notesVisible = !notesVisible;
+            const panel = document.getElementById('notesPanel');
+            const status = document.getElementById('notesStatus');
+            if (notesVisible) {
+                panel.classList.remove('hidden');
+                status.innerText = "顯示";
+            } else {
+                panel.classList.add('hidden');
+                status.innerText = "隱藏";
+            }
+        }
+
+        // Timer controller
+        function startTimer() {
+            timerInterval = setInterval(() => {
+                timerSeconds++;
+                const mins = Math.floor(timerSeconds / 60).toString().padStart(2, '0');
+                const secs = (timerSeconds % 60).toString().padStart(2, '0');
+                document.getElementById('timer').innerText = `${mins}:${secs}`;
+            }, 1000);
+        }
+
+        function resetTimer() {
+            timerSeconds = 0;
+            document.getElementById('timer').innerText = "00:00";
+            showToast("計時器已重新歸零");
+        }
+
+        // Toast messaging system
+        function showToast(msg) {
+            const toast = document.getElementById('toast');
+            document.getElementById('toastMsg').innerText = msg;
+            toast.classList.remove('translate-y-20', 'opacity-0');
+            toast.classList.add('translate-y-0', 'opacity-100');
+            setTimeout(() => {
+                toast.classList.remove('translate-y-0', 'opacity-100');
+                toast.classList.add('translate-y-20', 'opacity-0');
+            }, 2500);
+        }
+
+        // ----------------------------------------------------
+        // SYSTEM IMAGE LIGHTBOX CONTROLLERS (Task 2)
+        // ----------------------------------------------------
+        function openLightbox(src, title) {
+            const lightbox = document.getElementById('imageLightbox');
+            const image = document.getElementById('lightboxImage');
+            const heading = document.getElementById('lightboxTitle');
+
+            image.src = src;
+            heading.innerText = title;
+
+            lightbox.classList.remove('hidden');
+            lightbox.classList.add('flex');
+        }
+
+        function closeLightbox() {
+            const lightbox = document.getElementById('imageLightbox');
+            lightbox.classList.add('hidden');
+            lightbox.classList.remove('flex');
+        }
+
+        // ----------------------------------------------------
+        // INTERACTIVE LIVE DEMO LOGICS
+        // ----------------------------------------------------
+
+        // Slide 6: INP 10-Click Concept Simulator
+        function addInpRecord(ms) {
+            inpRecords.push(ms);
+            inpRecords.sort((a, b) => a - b);
+            
+            const count = inpRecords.length;
+            let scoreInp = 0;
+            let explanationText = "";
+
+            if (count < 10) {
+                // Before reaching 10 clicks, show current max as live preview
+                scoreInp = inpRecords[count - 1];
+                explanationText = `💡 已點擊 ${count}/10 次。滿10次即啟動 90th% 排外 outlier 運算！`;
+            } else {
+                // Discard worst 1 outlier and pick 9th element (which corresponds to index 8)
+                const index90 = Math.min(count - 1, Math.floor(count * 0.9) - 1);
+                scoreInp = inpRecords[index90];
+                explanationText = `🎉 點滿 10 次！已成功自動剔除最卡的 1 次 [${inpRecords[count - 1]}ms]，最終採用第 9 卡 [90th%] 的數值為估算！`;
+            }
+
+            // Render list
+            document.getElementById('inpCount').innerText = count;
+            document.getElementById('inpList').innerText = JSON.stringify(inpRecords);
+            document.getElementById('inpExplanation').innerText = explanationText;
+            
+            // Render Result style based on standard
+            const resultBox = document.getElementById('inpResult');
+            resultBox.innerText = `${scoreInp} ms`;
+            resultBox.className = "font-black text-xs md:text-sm";
+            if (scoreInp <= 200) {
+                resultBox.classList.add('text-emerald-400');
+            } else if (scoreInp <= 500) {
+                resultBox.classList.add('text-amber-400');
+            } else {
+                resultBox.classList.add('text-rose-500');
+            }
+        }
+
+        function clearInpSimulator() {
+            inpRecords = [];
+            document.getElementById('inpCount').innerText = "0";
+            document.getElementById('inpList').innerText = "-";
+            document.getElementById('inpExplanation').innerText = "(請點擊按鈕來塞入點擊紀錄)";
+            const resultBox = document.getElementById('inpResult');
+            resultBox.innerText = "-";
+            resultBox.className = "font-black text-slate-400";
+        }
+
+        // Slide 8: Long task UI freezing simulation logic
+        function runLongTask(blocked) {
+            const statusLabel = document.getElementById('simulatorStatus');
+            const spinner = document.getElementById('spinner');
+            
+            if (blocked) {
+                statusLabel.innerText = "🛑 卡住中!!";
+                statusLabel.className = "text-xs px-2.5 py-1 rounded bg-rose-600 text-white font-bold animate-pulse";
+                spinner.style.animationPlayState = 'paused';
+                
+                // Block main thread synchronously
+                setTimeout(() => {
+                    const startTime = Date.now();
+                    while (Date.now() - startTime < 1500) {
+                        // Dead loop blocks JS main thread for 1.5 seconds
+                    }
+                    statusLabel.innerText = "閒置中";
+                    statusLabel.className = "text-xs px-2.5 py-1 rounded bg-slate-800 text-slate-400";
+                    spinner.style.animationPlayState = 'running';
+                    showToast("同步卡死已結束，主線程恢復！");
+                }, 100);
+            } else {
+                statusLabel.innerText = "🟢 非阻塞計算中";
+                statusLabel.className = "text-xs px-2.5 py-1 rounded bg-emerald-600 text-white font-bold animate-pulse";
+                
+                // Async chunking task (Yielding via setTimeout)
+                let currentChunk = 0;
+                const totalChunks = 15;
+                
+                function processChunk() {
+                    if (currentChunk < totalChunks) {
+                        // Simulate minor chunk work (15ms per chunk)
+                        const start = Date.now();
+                        while (Date.now() - start < 15) {} 
+                        currentChunk++;
+                        setTimeout(processChunk, 100); // yield back to browser!
+                    } else {
+                        statusLabel.innerText = "閒置中";
+                        statusLabel.className = "text-xs px-2.5 py-1 rounded bg-slate-800 text-slate-400";
+                        showToast("非阻塞分流計算完成，過程完全流暢！");
+                    }
+                }
+                processChunk();
+            }
+        }
+
+        // Slide 13: Build Pack competition simulation
+        function runBuildSimulation(type) {
+            if (type === 'webpack') {
+                const btn = document.getElementById('btnRunWebpack');
+                btn.disabled = true;
+                const timeLabel = document.getElementById('webpackTime');
+                const bar = document.getElementById('webpackBar');
+                
+                timeLabel.innerText = "打包中...";
+                bar.style.width = "0%";
+                
+                let progress = 0;
+                const interval = setInterval(() => {
+                    progress += 10;
+                    bar.style.width = `${progress}%`;
+                    if (progress >= 100) {
+                        clearInterval(interval);
+                        timeLabel.innerText = "⏱️ 45.3 秒 (慢)";
+                        btn.disabled = false;
+                        showToast("Webpack 終於打包完成了！累死人...");
+                    }
+                }, 300);
+            } else if (type === 'rspack') {
+                const btn = document.getElementById('btnRunRspack');
+                btn.disabled = true;
+                const timeLabel = document.getElementById('rspackTime');
+                const bar = document.getElementById('rspackBar');
+                
+                timeLabel.innerText = "Rust 建置中...";
+                bar.style.width = "0%";
+                
+                setTimeout(() => {
+                    bar.style.width = "100%";
+                    timeLabel.innerText = "🚀 0.4 秒 (秒殺!)";
+                    btn.disabled = false;
+                    showToast("Rspack 秒殺打包完成！Rust 太狂了！");
+                }, 400);
+            }
+        }
+    </script>
+
+</body></html>
